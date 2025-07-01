@@ -174,22 +174,12 @@ class WebScraper:
                 data[field_name] = values[0] if len(values) == 1 else values
             
             elif extract_type == 'images_with_alt':
-                other_images = {}
+                other_images = []
                 image_links = soup.select(selector)
                 for link in image_links:
                     href = link.get('href', '')
                     if href:
-                        # Get alt text from img element inside the link
-                        img_elem = link.select_one('img')
-                        alt_text = ''
-                        if img_elem:
-                            alt_text = img_elem.get('alt', '')
-                        
-                        # If no alt text, use the href as fallback description
-                        if not alt_text:
-                            alt_text = href.split('/')[-1]  # Use filename as fallback
-                        
-                        other_images[href] = alt_text
+                        other_images.append(href)
                 
                 data[field_name] = other_images
             
@@ -276,19 +266,13 @@ class WebScraper:
         # Ensure the main image appears as the LAST entry in Other_image
         if 'Image' in data and 'Other_image' in data and data['Image']:
             main_image = data['Image']
-            if isinstance(data['Other_image'], dict):
+            if isinstance(data['Other_image'], list):
                 # Remove main image if it exists anywhere in Other_image
-                main_image_desc = None
                 if main_image in data['Other_image']:
-                    main_image_desc = data['Other_image'][main_image]
-                    del data['Other_image'][main_image]
-                
-                # If no description was found, create one
-                if not main_image_desc:
-                    main_image_desc = data.get('Title', 'Main Product Image')
+                    data['Other_image'].remove(main_image)
                 
                 # Add the main image as the LAST entry
-                data['Other_image'][main_image] = main_image_desc
+                data['Other_image'].append(main_image)
         
         # After extracting all fields, combine key_features_title, key_features, and description into one string
         key_features_title = data.get('key_features_title', '')
@@ -374,10 +358,46 @@ class WebScraper:
 
 def example_scraper():
     """
-    Example usage of the WebScraper class
+    Modified scraper to extract all products from a hardcoded brand
     """
-    # Example: Scraping BBQ grill from bbqguys.com
+    # Hardcoded brand name - change this to scrape different brands
+    HARDCODED_BRAND = "American Made Grills"
+    
+    # Load brand page count data
+    try:
+        with open('brand_pages_count.json', 'r', encoding='utf-8') as f:
+            brand_data = json.load(f)
+        brands = brand_data['brands']
+    except FileNotFoundError:
+        logger.error("brand_pages_count.json not found")
+        return
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in brand_pages_count.json")
+        return
+    
+    # Check if the hardcoded brand exists
+    if HARDCODED_BRAND not in brands:
+        logger.error(f"Brand '{HARDCODED_BRAND}' not found in brand_pages_count.json")
+        logger.info(f"Available brands: {list(brands.keys())}")
+        return
+    
+    brand_info = brands[HARDCODED_BRAND]
+    if brand_info.get('status') != 'success':
+        logger.error(f"Brand '{HARDCODED_BRAND}' status is not success: {brand_info.get('status')}")
+        return
+    
+    # Initialize the scraper
     scraper = WebScraper(base_url='https://www.bbqguys.com')
+    
+    # Extract all product URLs from all pages of the brand
+    logger.info(f"Extracting product URLs for {HARDCODED_BRAND}")
+    product_urls = extract_all_products_from_brand(scraper, brand_info)
+    
+    if not product_urls:
+        logger.warning(f"No product URLs found for {HARDCODED_BRAND}")
+        return
+    
+    logger.info(f"Found {len(product_urls)} product URLs for {HARDCODED_BRAND}")
     
     # Configuration for what data to extract from BBQ product page
     bbq_config = {
@@ -398,13 +418,12 @@ def example_scraper():
             'selector': 'span.MuiTypography-root.MuiTypography-keyFeatureBullet',
             'type': 'text'
         },
-        'Description': {
+        'temp_description': {
             'selector': 'div.MuiTypography-root.MuiTypography-body1.bbq-13af6c7-MuiTypography-root p',
             'type': 'text'
         },
-       
-                 'Image': {'selector': '.carousel__images a', 'type': 'attribute', 'attribute': 'href'},
-         'Other_image': {'selector': '.carousel__images a', 'type': 'images_with_alt'},
+        'Image': {'selector': '.carousel__images a', 'type': 'attribute', 'attribute': 'href'},
+        'Other_image': {'selector': '.carousel__images a', 'type': 'images_with_alt'},
         'Id': {
             'selector': 'span.MuiTypography-root.MuiTypography-body2.bbq-86swij-MuiTypography-root',
             'type': 'text'
@@ -425,36 +444,128 @@ def example_scraper():
             'selector': 'tbody.MuiTableBody-root',
             'type': 'specifications_table'
         },
-
     }
     
-    # Scrape data from the BBQ grill page
-    urls = [
-        'https://www.bbqguys.com/i/3181132/blaze/lte-pro-5-burner-propane-gas-grill',
+    # Scrape data from all product URLs
+    logger.info(f"Starting to scrape {len(product_urls)} products...")
+    all_products = []
+    
+    for i, url in enumerate(product_urls, 1):
+        logger.info(f"Scraping product {i}/{len(product_urls)}: {url}")
+        
+        try:
+            product_data = scraper.scrape_data(url, bbq_config)
+            if product_data:
+                all_products.append(product_data)
+                logger.info(f"✅ Successfully scraped: {product_data.get('Title', 'Unknown Title')}")
+            else:
+                logger.warning(f"❌ Failed to scrape: {url}")
+        except Exception as e:
+            logger.error(f"❌ Error scraping {url}: {e}")
+    
+    # Save results to products.json
+    scraper.save_to_json(all_products, 'products.json')
+    
+    logger.info(f"✅ Scraping completed!")
+    logger.info(f"Brand: {HARDCODED_BRAND}")
+    logger.info(f"Total products found: {len(product_urls)}")
+    logger.info(f"Successfully scraped: {len(all_products)}")
+    logger.info(f"Results saved to: products.json")
+
+
+def extract_all_products_from_brand(scraper, brand_info):
+    """
+    Extract all product URLs from all pages of a brand
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    
+    brand_url = brand_info['brand_url']
+    total_pages = brand_info['total_pages']
+    
+    logger.info(f"Processing brand with {total_pages} pages")
+    
+    all_product_urls = []
+    
+    # Generate all page URLs
+    page_urls = generate_page_urls(brand_url, total_pages)
+    
+    # Process each page
+    for page_num, page_url in enumerate(page_urls, 1):
+        logger.info(f"Processing page {page_num}/{total_pages}: {page_url}")
+        
+        soup = scraper.get_page(page_url)
+        
+        if soup:
+            page_products = extract_product_urls_from_page(soup, scraper.base_url)
+            all_product_urls.extend(page_products)
+            logger.info(f"Found {len(page_products)} products on page {page_num}")
+        else:
+            logger.warning(f"Failed to fetch page {page_num}")
+    
+    # Remove duplicates while preserving order
+    unique_product_urls = []
+    seen = set()
+    for url in all_product_urls:
+        if url not in seen:
+            unique_product_urls.append(url)
+            seen.add(url)
+    
+    logger.info(f"Total unique products found: {len(unique_product_urls)}")
+    return unique_product_urls
+
+
+def generate_page_urls(base_url, total_pages):
+    """Generate URLs for all pages using known page count"""
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    
+    page_urls = [base_url]  # Include the first page
+    
+    for page_num in range(2, total_pages + 1):
+        # Add page parameter to the URL
+        parsed = urlparse(base_url)
+        query_params = parse_qs(parsed.query) if parsed.query else {}
+        query_params['page'] = [str(page_num)]
+        
+        new_query = urlencode(query_params, doseq=True)
+        page_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, ''))
+        page_urls.append(page_url)
+    
+    return page_urls
+
+
+def extract_product_urls_from_page(soup, base_url):
+    """Extract product URLs from a single page"""
+    from urllib.parse import urljoin, urlparse, urlunparse
+    
+    product_urls = []
+    
+    # Look for product links - these are typically in product cards or listings
+    # Common selectors for product links on BBQ Guys
+    selectors = [
+        'a[href*="/i/"]',  # Product pages typically have /i/ in the URL
+        '.product-card a',
+        '.product-item a',
+        '.product-link',
+        '[data-product-url]',
+        '.tile-product a'
     ]
     
-    data = scraper.scrape_multiple_pages(urls, bbq_config)
+    for selector in selectors:
+        links = soup.select(selector)
+        for link in links:
+            href = link.get('href')
+            if href:
+                # Convert relative URLs to absolute
+                full_url = urljoin(base_url, href)
+                # Only include product URLs (contain /i/)
+                if '/i/' in full_url and full_url not in product_urls:
+                    # Clean up any fragment or query parameters except essential ones
+                    parsed = urlparse(full_url)
+                    clean_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+                    if clean_url not in product_urls:
+                        product_urls.append(clean_url)
     
-    # Save results
-    scraper.save_to_csv(data, 'bbq_grill.csv')
-    scraper.save_to_json(data, 'bbq_grill.json')
-    
-    print(f"Scraped {len(data)} BBQ grill(s)!")
-    
-    # Print results
-    for i, grill_data in enumerate(data):
-        print(f"\nBBQ Grill {i+1}:")
-        print(f"Title: {grill_data.get('Title', 'N/A')}")
-        print(f"Price: ${grill_data.get('Price', 'N/A')}")
-        print(f"Brand: {grill_data.get('brand', 'N/A')}")
-        print(f"URL: {grill_data.get('url', 'N/A')}")
-        
-        # Print specifications if available
-        if 'Specifications' in grill_data and grill_data['Specifications']:
-            print("\nSpecifications:")
-            for spec_obj in grill_data['Specifications']:
-                for spec_name, spec_value in spec_obj.items():
-                    print(f"  {spec_name}: {spec_value}")
+    return product_urls
 
 
 if __name__ == "__main__":
