@@ -8,6 +8,6 @@
     "restartPolicyType": "NEVER"
   },
   "cron": {
-    "schedule": "* * * * *"
+    "schedule": "*/5 * * * *"
   }
 }
