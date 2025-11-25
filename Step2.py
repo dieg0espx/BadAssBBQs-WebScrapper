@@ -11,6 +11,7 @@ import time
 import random
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 import logging
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -209,48 +210,64 @@ class AllURLsExtractor:
         logger.info(f"Data saved to {filename}")
 
 def main():
-    extractor = AllURLsExtractor()
+    """Main execution function"""
+    logger.info("🔍 PRODUCT URL EXTRACTION")
+    logger.info("=" * 50)
     
-    logger.info("Starting extraction of all product URLs from all brands")
-    
-    # Extract all URLs
-    all_brand_results = extractor.extract_all_urls()
-    
-    if not all_brand_results:
-        logger.error("No results obtained. Exiting.")
-        return
-    
-    # Calculate totals
-    total_products = sum(brand_data['product_count'] for brand_data in all_brand_results.values())
-    successful_brands = sum(1 for brand_data in all_brand_results.values() if brand_data['status'] == 'success')
-    
-    # Create comprehensive summary
-    summary = {
-        'extraction_timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'total_brands_processed': len(all_brand_results),
-        'successful_brands': successful_brands,
-        'total_products_found': total_products,
-        'brands': all_brand_results
-    }
-    
-    # Save comprehensive data
-    extractor.save_to_json(summary, 'all_urls_by_brand.json')
-    
-    # Print summary
-    logger.info("\n" + "="*60)
-    logger.info("EXTRACTION COMPLETE!")
-    logger.info("="*60)
-    logger.info(f"📊 Total brands processed: {len(all_brand_results)}")
-    logger.info(f"✅ Successful extractions: {successful_brands}")
-    logger.info(f"🔗 Total product URLs found: {total_products}")
-    logger.info("\n📁 Files created:")
-    logger.info("   • all_urls_by_brand.json - Comprehensive data organized by brand")
-    
-    # Show per-brand summary
-    logger.info(f"\n📋 Per-brand summary:")
-    for brand_name, brand_data in all_brand_results.items():
-        status_emoji = "✅" if brand_data['status'] == 'success' else "⚠️" if brand_data['status'] == 'skipped' else "❌"
-        logger.info(f"   {status_emoji} {brand_name}: {brand_data['product_count']} products ({brand_data['total_pages']} pages)")
+    if len(sys.argv) > 1:
+        brands_arg = sys.argv[1]
+        brands = brands_arg.split(",")
+        logger.info(f"Brands to process: {brands}")
+        
+        # Load the brand pages data to get page counts
+        try:
+            with open('brand_pages_count.json', 'r') as f:
+                brand_data = json.load(f)
+        except FileNotFoundError:
+            logger.error("brand_pages_count.json not found. Run Step1 first.")
+            sys.exit(1)
+        
+        # Initialize the extractor
+        extractor = AllURLsExtractor()
+        all_product_urls = []
+        
+        for brand_url in brands:
+            # Extract brand name from URL to match with brand_data
+            brand_name = brand_url.split('/')[-2].replace('-', ' ').title() if '/' in brand_url else brand_url
+            
+            # Find matching brand in data
+            matching_brand = None
+            for data_brand_name, brand_info in brand_data.items():
+                if isinstance(brand_info, dict) and brand_info.get('url') == brand_url:
+                    matching_brand = brand_info
+                    matching_brand['brand_url'] = brand_url  # Ensure brand_url is set
+                    break
+            
+            if matching_brand and matching_brand.get('page_count', 0) > 0:
+                logger.info(f"Processing {brand_name}...")
+                # Create brand data in the format expected by the extractor
+                brand_data_formatted = {
+                    'brand_url': brand_url,
+                    'total_pages': matching_brand.get('page_count', 1)
+                }
+                urls = extractor.extract_all_products_from_brand(brand_name, brand_data_formatted)
+                all_product_urls.extend(urls)
+                logger.info(f"Found {len(urls)} products for {brand_name}")
+            else:
+                logger.warning(f"No page count data found for {brand_name} or page count is 0")
+        
+        # Save all URLs to a file
+        with open('brands.txt', 'w') as f:
+            for url in all_product_urls:
+                f.write(url + '\n')
+        
+        logger.info(f"Total product URLs extracted: {len(all_product_urls)}")
+        logger.info("URLs saved to brands.txt")
+        
+    else:
+        logger.error("No brands provided as command-line argument.")
+        print("Usage: python Step2.py <comma_separated_brand_urls>")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

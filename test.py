@@ -15,6 +15,12 @@ import logging
 import re
 import sys
 
+# =============================================================================
+# HARDCODED CONFIGURATION - MODIFY THESE VALUES
+# =============================================================================
+HARDCODED_URL = "https://www.bbqguys.com/d/22965/brands/fontana-forni/shop-all"
+HARDCODED_PAGES = 2
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -359,70 +365,32 @@ class WebScraper:
 
 def example_scraper():
     """
-    Modified scraper to extract all products from a hardcoded brand
+    Modified scraper to extract all products from hardcoded URL and page count
     """
-    # Hardcoded brand name - change this to scrape different brands
-    HARDCODED_BRAND = "Fontana Forni"
+    logger.info(f"Scraping URL: {HARDCODED_URL}")
+    logger.info(f"Total pages: {HARDCODED_PAGES}")
     
-    print(f"\n🔍 BBQ PRODUCT SCRAPER")
-    print(f"=" * 60)
-    print(f"🎯 Target Brand: {HARDCODED_BRAND}")
-    print(f"=" * 60)
-    
-    # Load brand page count data
-    try:
-        print(f"📂 Loading brand data from brand_pages_count.json...")
-        with open('brand_pages_count.json', 'r', encoding='utf-8') as f:
-            brands = json.load(f)  # Direct load since brands are at top level
-        print(f"✅ Brand data loaded successfully!")
-    except FileNotFoundError:
-        logger.error("brand_pages_count.json not found")
-        print(f"❌ ERROR: brand_pages_count.json not found")
-        return
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON in brand_pages_count.json")
-        print(f"❌ ERROR: Invalid JSON in brand_pages_count.json")
-        return
-    
-    # Check if the hardcoded brand exists
-    if HARDCODED_BRAND not in brands:
-        logger.error(f"Brand '{HARDCODED_BRAND}' not found in brand_pages_count.json")
-        print(f"❌ ERROR: Brand '{HARDCODED_BRAND}' not found in brand_pages_count.json")
-        logger.info(f"Available brands: {list(brands.keys())}")
-        print(f"Available brands: {list(brands.keys())}")
-        return
-    
-    # Convert the JSON structure to match what the rest of the code expects
-    brand_data = brands[HARDCODED_BRAND]
+    # Create brand_info structure manually
     brand_info = {
-        'brand_url': brand_data['url'],
-        'total_pages': brand_data['page_count'],
-        'status': 'success'  # Assume success if the brand exists in JSON
+        'brand_url': HARDCODED_URL,
+        'total_pages': HARDCODED_PAGES,
+        'status': 'success'
     }
-    
-    print(f"📋 Brand Info:")
-    print(f"   URL: {brand_info['brand_url']}")
-    print(f"   Total Pages: {brand_info['total_pages']}")
-    print(f"   Status: {brand_info['status']}")
     
     # Initialize the scraper
     scraper = WebScraper(base_url='https://www.bbqguys.com')
     
-    # Extract all product URLs from all pages of the brand
-    print(f"\n🔗 EXTRACTING PRODUCT URLs...")
-    print(f"=" * 60)
-    logger.info(f"Extracting product URLs for {HARDCODED_BRAND}")
+    # Extract all product URLs from all pages of the URL
+    logger.info(f"Extracting product URLs from {HARDCODED_URL}")
     product_urls = extract_all_products_from_brand(scraper, brand_info)
     
     if not product_urls:
-        logger.warning(f"No product URLs found for {HARDCODED_BRAND}")
-        print(f"❌ ERROR: No product URLs found for {HARDCODED_BRAND}")
+        logger.warning(f"No product URLs found for {HARDCODED_URL}")
         return
     
-    logger.info(f"Found {len(product_urls)} product URLs for {HARDCODED_BRAND}")
-    print(f"✅ Found {len(product_urls)} product URLs for {HARDCODED_BRAND}")
+    logger.info(f"Found {len(product_urls)} product URLs from {HARDCODED_URL}")
     
-    # Configuration for what data to extract from BBQ product page (from test.py)
+    # Configuration for what data to extract from BBQ product page
     bbq_config = {
         'Title': {'selector': 'h1.product-name, .product-title, h1', 'type': 'text'},
         'Price': {
@@ -471,57 +439,27 @@ def example_scraper():
     
     # Scrape data from all product URLs
     logger.info(f"Starting to scrape {len(product_urls)} products...")
-    print(f"\n🚀 STARTING TO SCRAPE {len(product_urls)} PRODUCTS...")
-    print("=" * 60)
     all_products = []
     
     for i, url in enumerate(product_urls, 1):
-        # Calculate progress percentage
-        progress = (i / len(product_urls)) * 100
-        
         logger.info(f"Scraping product {i}/{len(product_urls)}: {url}")
-        print(f"\n[{i:3d}/{len(product_urls)}] ({progress:5.1f}%) Scraping: {url}")
         
         try:
             product_data = scraper.scrape_data(url, bbq_config)
             if product_data:
                 all_products.append(product_data)
-                title = product_data.get('Title', 'Unknown Title')
-                price = product_data.get('Price', 'N/A')
-                logger.info(f"✅ Successfully scraped: {title}")
-                print(f"    ✅ SUCCESS: {title} - Price: ${price}")
+                logger.info(f"✅ Successfully scraped: {product_data.get('Title', 'Unknown Title')}")
             else:
                 logger.warning(f"❌ Failed to scrape: {url}")
-                print(f"    ❌ FAILED: No data extracted")
         except Exception as e:
             logger.error(f"❌ Error scraping {url}: {e}")
-            print(f"    ❌ ERROR: {str(e)}")
-        
-        # Show progress bar every 10 products or at the end
-        if i % 10 == 0 or i == len(product_urls):
-            filled = int(50 * i / len(product_urls))
-            bar = '█' * filled + '░' * (50 - filled)
-            print(f"    Progress: |{bar}| {progress:5.1f}% ({i}/{len(product_urls)})")
-            print(f"    ✅ Successful: {len(all_products)} | ❌ Failed: {i - len(all_products)}")
     
     # Save results to products.json
     scraper.save_to_json(all_products, 'products.json')
     
-    # Final summary
-    print(f"\n" + "=" * 60)
-    print(f"🎉 SCRAPING COMPLETED!")
-    print(f"=" * 60)
-    print(f"📊 SUMMARY:")
-    print(f"   Brand: {HARDCODED_BRAND}")
-    print(f"   Total products found: {len(product_urls)}")
-    print(f"   Successfully scraped: {len(all_products)}")
-    print(f"   Failed to scrape: {len(product_urls) - len(all_products)}")
-    print(f"   Success rate: {(len(all_products)/len(product_urls)*100):5.1f}%")
-    print(f"   Results saved to: products.json")
-    print(f"=" * 60)
-    
     logger.info(f"✅ Scraping completed!")
-    logger.info(f"Brand: {HARDCODED_BRAND}")
+    logger.info(f"URL: {HARDCODED_URL}")
+    logger.info(f"Pages processed: {HARDCODED_PAGES}")
     logger.info(f"Total products found: {len(product_urls)}")
     logger.info(f"Successfully scraped: {len(all_products)}")
     logger.info(f"Results saved to: products.json")
@@ -546,7 +484,6 @@ def extract_all_products_from_brand(scraper, brand_info):
     # Process each page
     for page_num, page_url in enumerate(page_urls, 1):
         logger.info(f"Processing page {page_num}/{total_pages}: {page_url}")
-        print(f"📄 Processing page {page_num}/{total_pages}...")
         
         soup = scraper.get_page(page_url)
         
@@ -554,10 +491,8 @@ def extract_all_products_from_brand(scraper, brand_info):
             page_products = extract_product_urls_from_page(soup, scraper.base_url)
             all_product_urls.extend(page_products)
             logger.info(f"Found {len(page_products)} products on page {page_num}")
-            print(f"    ✅ Found {len(page_products)} products on page {page_num}")
         else:
             logger.warning(f"Failed to fetch page {page_num}")
-            print(f"    ❌ Failed to fetch page {page_num}")
     
     # Remove duplicates while preserving order
     unique_product_urls = []
@@ -686,4 +621,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # Run the hardcoded scraper
     example_scraper() 

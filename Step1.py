@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import random
 import re
 import logging
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -131,38 +132,7 @@ class PageCountExtractor:
         logger.info(f"Final pagination result: {max_page} pages")
         return max_page
 
-def get_brand_urls():
-    """Get all brand URLs from the brads.txt file"""
-    try:
-        with open('brands.txt', 'r') as f:
-            urls = [line.strip() for line in f if line.strip()]
-        return urls
-    except FileNotFoundError:
-        logger.warning("brads.txt not found, using hardcoded list")
-        # Fallback to hardcoded list if file doesn't exist
-        return [
-            'https://www.bbqguys.com/d/17994/brands/alfresco-grills/shop-all',
-            'https://www.bbqguys.com/d/19795/brands/american-made-grills/shop-all',
-            'https://www.bbqguys.com/d/13928/brands/american-outdoor-grill/shop-all',
-            'https://www.bbqguys.com/d/20399/brands/artisan-grills/shop-all',
-            'https://www.bbqguys.com/d/24062/brands/blackstone-grills/shop-all',
-            'https://www.bbqguys.com/d/17960/brands/blaze-grills/shop-all',
-            'https://www.bbqguys.com/d/25317/brands/breeo/shop-all',
-            'https://www.bbqguys.com/d/20880/brands/bromic-heating/shop-all',
-            'https://www.bbqguys.com/d/20396/brands/coyote-outdoor-living/shop-all',
-            'https://www.bbqguys.com/d/518/brands/delta-heat/shop-all',
-            'https://www.bbqguys.com/d/17978/brands/fire-magic-grills/shop-all',
-            'https://www.bbqguys.com/d/22965/brands/fontana-forni/shop-all',
-            'https://www.bbqguys.com/d/24176/brands/green-mountain-grills/shop-all',
-            'https://www.bbqguys.com/d/17946/brands/napoleon-shop-all',
-            'https://www.bbqguys.com/d/10469/brands/twin-eagles-grills/shop-all',
-            'https://www.bbqguys.com/d/18064/brands/primo-ceramic-grills/shop-all',
-            'https://www.bbqguys.com/d/19816/brands/summerset-grills/shop-all',
-            'https://www.bbqguys.com/d/23678/brands/mont-alpi/shop-all',
-            'https://www.bbqguys.com/d/21363/brands/american-fyre-designs/shop-all',
-            'https://www.bbqguys.com/d/22449/outdoor-living/fire-pits/the-outdoor-plus/top-fires',
-            'https://www.bbqguys.com/d/25428/brands/ledge-lounger/shop-all'
-        ]
+
 
 def extract_brand_name(url):
     """Extract brand name from URL"""
@@ -246,34 +216,44 @@ def main():
     logger.info("🔍 BRAND PAGINATION DETECTION")
     logger.info("=" * 50)
     
-    # Get page counts for all brands
-    pages_data = get_pages_for_all_brands()
-    
-    # Save to JSON file
-    output_filename = 'brand_pages_count.json'
-    save_to_json(pages_data, output_filename)
-    
-    # Print summary
-    total_brands = pages_data['total_brands']
-    successful_brands = sum(1 for brand in pages_data['brands'].values() if brand['status'] == 'success')
-    total_pages = sum(brand['total_pages'] for brand in pages_data['brands'].values() if brand['status'] == 'success')
-    
-    logger.info("\n" + "=" * 50)
-    logger.info("📊 SUMMARY")
-    logger.info("=" * 50)
-    logger.info(f"Total brands processed: {total_brands}")
-    logger.info(f"Successful extractions: {successful_brands}")
-    logger.info(f"Total pages across all brands: {total_pages}")
-    logger.info(f"Results saved to: {output_filename}")
-    
-    # Show individual results
-    logger.info("\n🏷️ BRAND PAGE COUNTS:")
-    logger.info("-" * 30)
-    for brand_name, brand_data in pages_data['brands'].items():
-        if brand_data['status'] == 'success':
-            logger.info(f"{brand_name}: {brand_data['total_pages']} pages")
-        else:
-            logger.info(f"{brand_name}: FAILED ({brand_data.get('error', 'Unknown error')})")
+    if len(sys.argv) > 1:
+        brands_arg = sys.argv[1]
+        brands = brands_arg.split(",")
+        print("Brands to process:", brands)
+        
+        # Process only the passed brands
+        extractor = PageCountExtractor()
+        pages_data = {}
+        for brand_url in brands:
+            brand_name = extract_brand_name(brand_url)
+            if brand_name:
+                logger.info(f"Processing brand: {brand_name}")
+                # Get the page and extract page count
+                soup = extractor.get_page(brand_url)
+                if soup:
+                    page_count = extractor.get_max_page_number(soup)
+                else:
+                    page_count = 0
+                    logger.error(f"Failed to fetch page for {brand_name}")
+                
+                pages_data[brand_name] = {
+                    'url': brand_url,
+                    'page_count': page_count
+                }
+                logger.info(f"Brand: {brand_name}, Pages: {page_count}")
+            else:
+                logger.warning(f"Could not extract brand name from URL: {brand_url}")
+        
+        # Save the results
+        with open('brand_pages_count.json', 'w') as f:
+            json.dump(pages_data, f, indent=2)
+        
+        logger.info(f"Saved page counts for {len(pages_data)} brands to brand_pages_count.json")
+        
+    else:
+        logger.error("No brands provided as command-line argument.")
+        print("Usage: python Step1.py <comma_separated_brand_urls>")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
